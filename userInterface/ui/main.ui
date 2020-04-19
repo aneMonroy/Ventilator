@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1012</width>
-    <height>715</height>
+    <height>717</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -602,7 +602,7 @@ border-color: white;</string>
       <x>260</x>
       <y>10</y>
       <width>741</width>
-      <height>641</height>
+      <height>651</height>
      </rect>
     </property>
     <property name="title">
@@ -661,10 +661,10 @@ border-color: white;</string>
       </widget>
      </item>
      <item row="1" column="1">
-      <widget class="PlotWidget" name="graphFlow" native="true"/>
+      <widget class="PlotWidget" name="graphPressure" native="true"/>
      </item>
      <item row="1" column="0">
-      <widget class="PlotWidget" name="graphPressure" native="true"/>
+      <widget class="PlotWidget" name="graphFlow" native="true"/>
      </item>
      <item row="2" column="0">
       <widget class="QLabel" name="label_18">

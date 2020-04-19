@@ -5,13 +5,14 @@ from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow, QFrame
 import pyqtgraph as pg
 import time
 from datetime import datetime
-
-from threadEncoder import*
-
-import copy
+import serial
 import numpy as np
 
+from threadEncoder import*
 from alarmPage import*
+from arduinoSerial import*
+
+
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 Form, Base = uic.loadUiType(os.path.join(current_dir, "ui/main.ui"))
@@ -25,35 +26,42 @@ class MainWindow(Base, Form):
     def __init__(self, parent=None):
         super().__init__()
         self.setupUi(self)
+        self.data = loadData()
+        #------ Serial ------
+        self._actSerial = self.data['comms']['activeSerial']
+        if self._actSerial==1:
+            self.ser = arduinoSerial()
+            self.ser.start()
+            self.ser.newData.connect(self.serialRead)
         #------ GRAPHS ------
-        self.timer = pg.QtCore.QTimer()
-        # self.timer.timeout.connect(self.serial_read)
         self.myCurve = [0, 0, 0]
         self.chunkSize = 200
         self.split = 100
         self.xAxis = np.arange(self.chunkSize)
         self.data1 = np.zeros((self.chunkSize, 4))
-        self.plot(0, self.graphPressure, "P", self.xAxis, self.data1[:, 0])
-        self.plot(1, self.graphFlow, "C", self.xAxis, self.data1[:, 1])
+        self.plot(0, self.graphFlow, "C", self.xAxis, self.data1[:, 0])
+        self.plot(1, self.graphPressure, "P", self.xAxis, self.data1[:, 1])
         self.plot(2, self.graphVolume, "V", self.xAxis, self.data1[:, 2])
         self.myCurve[0].setPen(pg.mkPen('fbcca7', width=2))
         self.myCurve[1].setPen(pg.mkPen('a3dade', width=2))
-        self.myCurve[2].setPen(pg.mkPen('a3dade', width=2))
+        self.myCurve[2].setPen(pg.mkPen('ffaa00', width=2))#ffaa00
         self.pointer = 0
         self.firstCycle = 1
         #--------- Variables ---------
-        self.data = loadData()
+        
         
         self._pres1 = 0
         self._pres2 = 0
         self._pip = 20
+        self._dflow =0
+        self._dvol = 0
+        self._dpres = 0
+        
+        #--- Configuration VARS --- #
         self._peep = self.data['config']['peep']
         self._fr = self.data['config']['bpm']
-        self._flow = 0
         self._vol = self.data['config']['vol']
         self._ratio = self.data['config']['ratio']
-        
-        
 
         #---- STARTED ---
         self.update()
@@ -77,6 +85,33 @@ class MainWindow(Base, Form):
         self.nowM=1
         self.togglePress=0
     
+    def serialSend(self,indexN):
+        try:
+            if indexN==1:
+                self.ser.writeData('BPM {}'.format(self._fr))
+            elif indexN==2:
+                self.ser.writeData('VOL {}'.format(self._vol))
+            elif indexN == 3:
+                self.ser.writeData('IRE {}'.format(self._ratio))
+            elif indexN == 4:
+                self.ser.writeData('PEEP {}'.format(self._peep))
+            else:
+                pass
+        except:
+            print('COM ERROR')
+            
+    @pyqtSlot(int,int,int)
+    def serialRead(self,fl,vl,pr):
+        self._dflow = fl
+        self._dvol = vl
+        self._dpres = pr
+        self.update()
+        #print('RECV: {} {} {}'.format(fl,vl,pr))
+        
+    def flush(self):
+        self.ser.flush()
+        self.ser.flush()
+    
     @pyqtSlot(int)
     def pressed(self,pin):
         if self.togglePress==0:
@@ -99,7 +134,9 @@ class MainWindow(Base, Form):
             self.menuObs[self.nowM].setStyleSheet("background-color: rgb(85, 85, 127)")
             self.togglePress=0
             self.ignoreCall=False
-    
+            if self._actSerial==1:
+                self.serialSend(self.nowM)
+
     @pyqtSlot(int)
     def rotCW(self,pin):
         if not self.ignoreCall:
@@ -152,7 +189,7 @@ class MainWindow(Base, Form):
             self._vol=2000
         elif self._vol > 2000:
             self._vol=50
-        self.actualVolume.setText('{} mL'.format(self._vol))
+        self.actualVolume.setText('{} mL'.format(self._vol))    
     
     def changeRatio(self):
         if self._ratio < 2:
@@ -166,7 +203,7 @@ class MainWindow(Base, Form):
             self._peep=10
         elif self._peep > 10:
             self._peep=2
-        self.actualPEEP.setText('{} cmH2O'.format(self._peep))           
+        self.actualPEEP.setText('{} cmH2O'.format(self._peep))
     
     def setSelected(self,objT):
         objT.setStyleSheet("background-color: rgb(85, 85, 127)")
@@ -206,29 +243,30 @@ class MainWindow(Base, Form):
         self.myCurve[chartIndex] = widget.plot(hour, temperature, title=title)
         widget.setXRange(0, self.chunkSize, padding=0)
         if chartIndex == 0:
-            widget.setYRange(0, 50)
+            widget.setYRange(0, 100)
         elif chartIndex ==1:
-            widget.setYRange(-20, 30)
+            widget.setYRange(0, 100)
         else :
-            widget.setYRange(0,2)
+            widget.setYRange(0,100)
+            
         widget.setMouseEnabled(False, False)
         widget.disableAutoRange()
         widget.showGrid(True, True, 1)
     
     def update(self):
-        pres = self._pres1
-        flow = self._flow
-        vol = self._vol
+        pres = self._dpres
+        flow = self._dflow
+        vol = self._dvol
         self.i = self.pointer % (self.chunkSize)
         if self.i == 0 and self.firstCycle == 0:
-            tmp = np.empty((self.chunkSize, 3))
+            tmp = np.empty((self.chunkSize, 4))
             tmp[:self.split] = self.data1[self.chunkSize - self.split:]
             self.data1 = tmp
             self.pointer = self.split
             self.i = self.pointer
-        self.data1[self.i, 0] = pres
-        self.data1[self.i, 1] = float(flow) / 1000.0
-        self.data1[self.i, 2] = float(vol)/1000.0
+        self.data1[self.i, 0] = float(flow)
+        self.data1[self.i, 1] = float(pres)
+        self.data1[self.i, 2] = float(vol)
         self.myCurve[0].setData(
             x=self.xAxis[:self.i + 1],
             y=self.data1[:self.i + 1, 0],
@@ -251,6 +289,7 @@ class MainWindow(Base, Form):
     
     def closeEvent(self,event):
         self.rotaryEncoder.stopEncoder()
+        self.ser.close()
         event.accept()
 
 
